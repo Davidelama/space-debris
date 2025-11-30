@@ -1,0 +1,29 @@
+{
+    "satellite": {
+        "coefficiente_drag": 2.2,
+        "nome": "CubeSat-1",
+        "area_sezione_m2": 0.1,
+        "massa_kg": 10.0
+    },
+    "orbita": {
+        "posizione_iniziale": "automatica",
+        "inclinazione_gradi": 51.6,
+        "altitudine_iniziale_km": 250.0
+    },
+    "output": {
+        "salva_grafici": true,
+        "cartella_dati": "../data",
+        "cartella_figure": "../fig",
+        "salva_dati": true,
+        "max_punti_dati": 10000,
+        "max_punti_grafico": 5000,
+        "mostra_statistiche": true,
+        "prefisso_file": "orbita"
+    },
+    "simulazione": {
+        "backend_grafico": "gr",
+        "attrito_attivo": true,
+        "dt": 10.0,
+        "tempo_simulazione_giorni": 3000
+    }
+}
