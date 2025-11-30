@@ -93,7 +93,7 @@ function accelerazione_totale(pos, vel, params::Dict)
         v_mag = sqrt(vel[1]^2 + vel[2]^2 + vel[3]^2)
 
         if v_mag > 0
-            drag_mag = -0.5 * Cd * A * rho * v_mag^2 / m
+            drag_mag = -0.5 * Cd * A * rho * v_mag / m
             a_drag = [drag_mag * vel[1],
                       drag_mag * vel[2],
                       drag_mag * vel[3]]
@@ -155,13 +155,13 @@ function simula_orbita(pos_iniziale, vel_iniziale, tempo_totale, dt, params::Dic
         
         if altitudini[i] < 100e3
             println("\n⚠️  Satellite rientrato dopo $(round(i*dt/3600, digits=2)) ore!")
-            return x[1:i], y[1:i], z[1:i], altitudini[1:i]
+            return x[1:i], y[1:i], z[1:i], altitudini[1:i], collect(1:i) * dt
         end
         
         pos, vel = rk4_step(pos, vel, dt, params)
     end
     
-    return x, y, z, altitudini
+    return x, y, z, altitudini, collect(1:n_steps) * dt
 end
 
 # ============== MAIN ==============
@@ -235,7 +235,7 @@ if out["mostra_statistiche"]
 end
 
 # Esegui simulazione (passare il dizionario dei parametri forze, che contiene Cd)
-x, y, z, altitudini = simula_orbita(pos_iniziale, vel_iniziale, tempo_totale, dt,
+x, y, z, altitudini, t = simula_orbita(pos_iniziale, vel_iniziale, tempo_totale, dt,
                                      params_forze)
 
 # Salva dati se richiesto
@@ -403,7 +403,7 @@ if attrito
         println("Altitudine iniziale: $(round(alt_i, digits=1)) km")
         println("Altitudine finale: $(round(alt_f, digits=1)) km")
         println("Perdita totale: $(round(perdita, digits=1)) km")
-        println("Perdita media: $(round(perdita/sim["tempo_simulazione_giorni"], digits=2)) km/giorno")
+        println("Perdita media: $(round(perdita/last(t)*3600*24, digits=2)) km/giorno")
     end
     
 end

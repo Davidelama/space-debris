@@ -2,7 +2,7 @@
     "satellite": {
         "coefficiente_drag": 2.2,
         "nome": "Tiangong-1",
-        "area_sezione_m2": 20.0,
+        "area_sezione_m2": 19.0,
         "massa_kg": 8506.0
     },
     "orbita": {
