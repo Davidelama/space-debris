@@ -1,14 +1,14 @@
 {
     "satellite": {
         "coefficiente_drag": 2.2,
-        "nome": "CubeSat-1",
-        "area_sezione_m2": 0.1,
-        "massa_kg": 10.0
+        "nome": "Tiangong-1",
+        "area_sezione_m2": 20.0,
+        "massa_kg": 8506.0
     },
     "orbita": {
         "posizione_iniziale": "automatica",
         "inclinazione_gradi": 51.6,
-        "altitudine_iniziale_km": 250.0
+        "altitudine_iniziale_km": 280.0
     },
     "output": {
         "salva_grafici": true,
@@ -24,6 +24,6 @@
         "backend_grafico": "gr",
         "attrito_attivo": true,
         "dt": 10.0,
-        "tempo_simulazione_giorni": 3000
+        "tempo_simulazione_giorni": 10000
     }
 }

@@ -59,18 +59,26 @@ end
 
 # Modello di densità atmosferica (kg/m³)
 function densita_atmosfera(altitudine)
-    H = 8500.0  # scala di altezza (m)
-    rho_0 = 1.225  # densità al livello del mare (kg/m³)
+    H = 29.5e3  # scala di altezza (m)
+    rho_0 = 6e-10  # densità a 175km (kg/m³)
+    rho_0_log = log(rho_0) # log(densità) a 175km (kg/m³)
+    h = 175e3  # riferimento altitudine (m)
     
     if altitudine < 0
         return rho_0
     else
-        return rho_0 * exp(-altitudine / H)
+        return exp(rho_0_log-(altitudine-h) / H)
     end
 end
 
 # Accelerazione totale (gravità + drag)
-function accelerazione_totale(pos, vel, Cd, A, m, attrito_attivo)
+function accelerazione_totale(pos, vel, params::Dict)
+    # Estrai parametri forze dal dizionario
+    Cd = params["Cd"]
+    A = params["A"]
+    m = params["m"]
+    attrito_attivo = params["attrito_attivo"]
+
     # Gravitazione
     r = sqrt(pos[1]^2 + pos[2]^2 + pos[3]^2)
     a_mag_grav = -G * M_terra / r^2
@@ -78,45 +86,45 @@ function accelerazione_totale(pos, vel, Cd, A, m, attrito_attivo)
               a_mag_grav * pos[2] / r,
               a_mag_grav * pos[3] / r]
     
-    # Drag atmosferico
+    # Drag atmosferico (se attivo)
     if attrito_attivo
         altitudine = r - R_terra
         rho = densita_atmosfera(altitudine)
         v_mag = sqrt(vel[1]^2 + vel[2]^2 + vel[3]^2)
-        
+
         if v_mag > 0
-            drag_mag = -0.5 * Cd * A * rho * v_mag / m
+            drag_mag = -0.5 * Cd * A * rho * v_mag^2 / m
             a_drag = [drag_mag * vel[1],
-                     drag_mag * vel[2],
-                     drag_mag * vel[3]]
+                      drag_mag * vel[2],
+                      drag_mag * vel[3]]
         else
             a_drag = [0.0, 0.0, 0.0]
         end
     else
         a_drag = [0.0, 0.0, 0.0]
     end
-    
+
     return a_grav + a_drag
 end
 
 # Runge-Kutta 4° ordine
-function rk4_step(pos, vel, dt, Cd, A, m, attrito_attivo)
-    k1_vel = accelerazione_totale(pos, vel, Cd, A, m, attrito_attivo)
+function rk4_step(pos, vel, dt, params::Dict)
+    k1_vel = accelerazione_totale(pos, vel, params)
     k1_pos = vel
     
     pos2 = pos + 0.5 * dt * k1_pos
     vel2 = vel + 0.5 * dt * k1_vel
-    k2_vel = accelerazione_totale(pos2, vel2, Cd, A, m, attrito_attivo)
+    k2_vel = accelerazione_totale(pos2, vel2, params)
     k2_pos = vel2
     
     pos3 = pos + 0.5 * dt * k2_pos
     vel3 = vel + 0.5 * dt * k2_vel
-    k3_vel = accelerazione_totale(pos3, vel3, Cd, A, m, attrito_attivo)
+    k3_vel = accelerazione_totale(pos3, vel3, params)
     k3_pos = vel3
     
     pos4 = pos + dt * k3_pos
     vel4 = vel + dt * k3_vel
-    k4_vel = accelerazione_totale(pos4, vel4, Cd, A, m, attrito_attivo)
+    k4_vel = accelerazione_totale(pos4, vel4, params)
     k4_pos = vel4
     
     new_pos = pos + (dt / 6.0) * (k1_pos + 2*k2_pos + 2*k3_pos + k4_pos)
@@ -126,7 +134,7 @@ function rk4_step(pos, vel, dt, Cd, A, m, attrito_attivo)
 end
 
 # Simulazione principale
-function simula_orbita(pos_iniziale, vel_iniziale, tempo_totale, dt, Cd, A, m, attrito_attivo)
+function simula_orbita(pos_iniziale, vel_iniziale, tempo_totale, dt, params::Dict)
     n_steps = Int(floor(tempo_totale / dt))
     
     x = zeros(n_steps)
@@ -150,7 +158,7 @@ function simula_orbita(pos_iniziale, vel_iniziale, tempo_totale, dt, Cd, A, m, a
             return x[1:i], y[1:i], z[1:i], altitudini[1:i]
         end
         
-        pos, vel = rk4_step(pos, vel, dt, Cd, A, m, attrito_attivo)
+        pos, vel = rk4_step(pos, vel, dt, params)
     end
     
     return x, y, z, altitudini
@@ -203,6 +211,9 @@ area = sat["area_sezione_m2"]
 Cd = sat["coefficiente_drag"]
 attrito = sim["attrito_attivo"]
 
+# Dizionario parametri forze (passato alle funzioni di integrazione) — ora include Cd
+params_forze = Dict("A" => area, "m" => massa, "attrito_attivo" => attrito, "Cd" => Cd)
+
 # Tempo simulazione
 periodo = 2 * π * r_orbita / v_orbitale
 tempo_totale = sim["tempo_simulazione_giorni"] * 24 * 3600
@@ -223,9 +234,9 @@ if out["mostra_statistiche"]
     println("\nSimulazione in corso...")
 end
 
-# Esegui simulazione
-x, y, z, altitudini = simula_orbita(pos_iniziale, vel_iniziale, tempo_totale, dt, 
-                                     Cd, area, massa, attrito)
+# Esegui simulazione (passare il dizionario dei parametri forze, che contiene Cd)
+x, y, z, altitudini = simula_orbita(pos_iniziale, vel_iniziale, tempo_totale, dt,
+                                     params_forze)
 
 # Salva dati se richiesto
 if out["salva_dati"]
