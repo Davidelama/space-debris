@@ -1,4 +1,4 @@
-using Plots, JSON
+using Plots, JSON, Interpolations, NPZ
 
 # Costanti fisiche
 const G = 6.67430e-11  # Costante gravitazionale (m³/kg/s²)
@@ -57,19 +57,46 @@ function carica_config(filename="orbit_config.json")
     return config
 end
 
-# Modello di densità atmosferica (kg/m³)
-function densita_atmosfera(altitudine)
-    H = 29.5e3  # scala di altezza (m)
-    rho_0 = 6e-10  # densità a 175km (kg/m³)
-    rho_0_log = log(rho_0) # log(densità) a 175km (kg/m³)
-    h = 175e3  # riferimento altitudine (m)
+# Funzione per calcolare la densità atmosferica in base all'altitudine
+function densita_atmosfera_log( solar_activity::Symbol=:mean)
     
-    if altitudine < 0
-        return rho_0
-    else
-        return exp(rho_0_log-(altitudine-h) / H)
+    if !(solar_activity in [:low, :mean, :high, :standard])
+        error("solar_activity deve essere :low, :mean, :high, o :standard")
     end
+    
+    data = npzread("atmospheric_data.npz")
+    
+    if solar_activity == :standard
+        altitudes = data["ussa1976_altitude"]
+        densities = data["ussa1976_density"]
+        max_alt = 84852.0
+        min_alt = -2000.0
+    elseif solar_activity == :low
+        altitudes = data["msise90_low_altitude"]
+        densities = data["msise90_low_density"]
+        max_alt = 900000.0
+        min_alt = 0.0
+    elseif solar_activity == :mean
+        altitudes = data["msise90_mean_altitude"]
+        densities = data["msise90_mean_density"]
+        max_alt = 900000.0
+        min_alt = 0.0
+    else
+        altitudes = data["msise90_high_altitude"]
+        densities = data["msise90_high_density"]
+        max_alt = 900000.0
+        min_alt = 0.0
+    end
+
+    
+    # Interpola il logaritmo della densità (più accurato per variazioni esponenziali)
+    log_densities = log.(densities)
+    itp = interpolate((altitudes,), log_densities, Gridded(Linear()))
+    
+    # Ritorna l'esponenziale del valore interpolato
+    return itp
 end
+
 
 # Accelerazione totale (gravità + drag)
 function accelerazione_totale(pos, vel, params::Dict)
@@ -88,21 +115,21 @@ function accelerazione_totale(pos, vel, params::Dict)
     
     # Drag atmosferico (se attivo)
     if attrito_attivo
-        altitudine = r - R_terra
-        rho = densita_atmosfera(altitudine)
-        v_mag = sqrt(vel[1]^2 + vel[2]^2 + vel[3]^2)
+         altitudine = r - R_terra
+         rho = exp(atm_intp(altitudine))
+         v_mag = sqrt(vel[1]^2 + vel[2]^2 + vel[3]^2)
 
-        if v_mag > 0
-            drag_mag = -0.5 * Cd * A * rho * v_mag / m
-            a_drag = [drag_mag * vel[1],
-                      drag_mag * vel[2],
-                      drag_mag * vel[3]]
-        else
-            a_drag = [0.0, 0.0, 0.0]
-        end
-    else
-        a_drag = [0.0, 0.0, 0.0]
-    end
+         if v_mag > 0
+             drag_mag = -0.5 * Cd * A * rho * v_mag / m
+             a_drag = [drag_mag * vel[1],
+                       drag_mag * vel[2],
+                       drag_mag * vel[3]]
+         else
+             a_drag = [0.0, 0.0, 0.0]
+         end
+     else
+         a_drag = [0.0, 0.0, 0.0]
+     end
 
     return a_grav + a_drag
 end
@@ -176,6 +203,9 @@ sim = config["simulazione"]
 orb = config["orbita"]
 sat = config["satellite"]
 out = config["output"]
+
+# Carica densità atmosferica
+atm_intp = densita_atmosfera_log(:mean)
 
 # Imposta backend grafico
 if sim["backend_grafico"] == "plotly"
