@@ -160,35 +160,95 @@ function rk4_step(pos, vel, dt, params::Dict)
     return new_pos, new_vel
 end
 
-# Simulazione principale
-function simula_orbita(pos_iniziale, vel_iniziale, tempo_totale, dt, params::Dict)
-    n_steps = Int(floor(tempo_totale / dt))
-    
-    x = zeros(n_steps)
-    y = zeros(n_steps)
-    z = zeros(n_steps)
-    altitudini = zeros(n_steps)
-    
-    pos = pos_iniziale
-    vel = vel_iniziale
-    
-    for i in 1:n_steps
-        x[i] = pos[1]
-        y[i] = pos[2]
-        z[i] = pos[3]
-        
-        r = sqrt(pos[1]^2 + pos[2]^2 + pos[3]^2)
-        altitudini[i] = r - R_terra
-        
-        if altitudini[i] < 100e3
-            println("\n⚠️  Satellite rientrato dopo $(round(i*dt/3600, digits=2)) ore!")
-            return x[1:i], y[1:i], z[1:i], altitudini[1:i], collect(1:i) * dt
+# Simulazione principale con supporto a eventi impulsivi
+# events: Vector di Dict con chiavi richieste:
+#   "start" => tempo in s (float) inizio evento
+#   "end" => tempo in s fine evento
+#   "impulses_per_s" => frequenza impulsi (Hz)
+#   "impulse_momentum" => quantità di moto per impulso (kg⋅m/s)
+#   "origin" => [x,y,z] posizione di origine degli impulsi (m), fissa
+#
+# Durante un evento il timestep viene ridotto per rispettare la frequenza degli impulsi;
+# ogni impulso viene applicato come incremento istantaneo di velocità nella direzione
+# dal punto di origine verso la posizione istantanea del satellite.
+function simula_orbita(pos_iniziale, vel_iniziale, tempo_totale, dt, params::Dict; events=Vector{Dict}())
+     # Prepara eventi: aggiungi campo next_impulse
+     for ev in events
+         ev["next_impulse"] = ev["start"]
+         if !haskey(ev, "origin")
+             ev["origin"] = [0.0, 0.0, 0.0]
+         end
+     end
+
+    # vettori dinamici (uso push! per lunghezza variabile)
+    x = Float64[]
+    y = Float64[]
+    z = Float64[]
+    altitudini = Float64[]
+    times = Float64[]
+
+    pos = copy(pos_iniziale)
+    vel = copy(vel_iniziale)
+    t = 0.0
+
+    while t < tempo_totale - 1e-12
+        # determina se siamo dentro almeno un evento e il dt corrente
+        dt_cur = dt
+        active_events = filter(ev -> (t >= ev["start"]) && (t < ev["end"]), events)
+        for ev in active_events
+            impulse_period = 1.0 / (ev["impulses_per_s"] + 0.0)
+            # assicurati di integrare con passo <= periodo impulso per poter applicare
+            # l'impulso appena dopo un passo
+            dt_cur = min(dt_cur, impulse_period)
         end
-        
-        pos, vel = rk4_step(pos, vel, dt, params)
+
+        # ultimo passo per terminare esattamente al tempo totale
+        if t + dt_cur > tempo_totale
+            dt_cur = tempo_totale - t
+        end
+
+        # integrazione passo dt_cur
+        pos, vel = rk4_step(pos, vel, dt_cur, params)
+        t += dt_cur
+
+        # applica impulsi programmati (possibile applicare più impulsi se dt_cur supera multipli)
+        for ev in active_events
+             ip = ev["impulses_per_s"]
+             period = 1.0 / ip
+             # applica tutti gli impulsi la cui schedule è <= t
+             while ev["next_impulse"] <= t + 1e-12 && ev["next_impulse"] < ev["end"] - 1e-12
+                 # calcola direzione dal punto di origine alla posizione corrente
+                 origin = ev["origin"]
+                 rvec = pos .- origin
+                 rnorm = sqrt(rvec[1]^2 + rvec[2]^2 + rvec[3]^2)
+                 if rnorm > 0
+                     dir = rvec ./ rnorm
+                     # Converti quantità di moto in delta-v: Δv = Δp / m
+                     delta_v = ev["impulse_momentum"] / params["m"]
+                     dv = delta_v .* dir
+                     vel .= vel .+ dv
+                 end
+                 # schedula il prossimo impulso
+                 ev["next_impulse"] += period
+             end
+         end
+
+        # salva stato corrente
+        push!(x, pos[1])
+        push!(y, pos[2])
+        push!(z, pos[3])
+        r = sqrt(pos[1]^2 + pos[2]^2 + pos[3]^2)
+        push!(altitudini, r - R_terra)
+        push!(times, t)
+
+        # verifica rientro
+        if altitudini[end] < 100e3
+            println("\n⚠️  Satellite rientrato dopo $(round(t/3600, digits=2)) ore!")
+            return x, y, z, altitudini, times
+        end
     end
-    
-    return x, y, z, altitudini, collect(1:n_steps) * dt
+
+    return x, y, z, altitudini, times
 end
 
 # ============== MAIN ==============
@@ -207,48 +267,62 @@ out = config["output"]
 # Carica densità atmosferica
 atm_intp = densita_atmosfera_log(:mean)
 
-# Imposta backend grafico
-if sim["backend_grafico"] == "plotly"
-    try
-        plotly()
-        println("✓ Backend Plotly attivato (interattivo)")
-        println("   Usa il mouse per ruotare, zoom e pan nel grafico 3D")
-    catch e
-        println("⚠️  Plotly non disponibile: $e")
-        println("   Installa con: using Pkg; Pkg.add(\"PlotlyJS\")")
-        println("   Uso backend GR invece...")
-        gr()
+# --- Definizione eventi impulsi (esempio) ---
+# events = [
+#     Dict(
+#         "start" => 3600.0,           # inizio evento a 1 h (s)
+#         "end" => 3600.5,            # fine evento dopo 0.5 s
+#         "impulses_per_s" => 1000.0, # 1000 impulsi al secondo
+#         "delta_v" => 0.001,         # delta-v per impulso [m/s]
+#         "origin" => [R_terra, 0.0, 0.0]  # origine degli impulsi (fissa)
+#     )
+# ]
+# Per default nessun evento:
+#events = Vector{Dict}()
+# Leggi eventi da configurazione, se presenti (crea Vector{Dict} con tipi corretti)
+events = Vector{Dict}()
+if haskey(sim, "eventi_impulsi")
+    raw_events = sim["eventi_impulsi"]
+    for re in raw_events
+        ev = Dict{String,Any}()
+        ev["start"] = Float64(re["start"])
+        ev["end"] = Float64(re["end"])
+        ev["impulses_per_s"] = Float64(re["impulses_per_s"])
+        ev["impulse_momentum"] = Float64(re["impulse_momentum"])
+         if haskey(re, "origin") && length(re["origin"]) == 3
+            origin_raw = re["origin"]
+            ev["origin"] = [Float64(origin_raw[1]), Float64(origin_raw[2]), Float64(origin_raw[3])]
+         else
+            ev["origin"] = [0.0, 0.0, 0.0]
+         end
+        push!(events, ev)
     end
-else
-    gr()
-    println("✓ Backend GR attivato (statico)")
 end
-
-# Calcola parametri orbitali
-altitudine_iniziale = orb["altitudine_iniziale_km"] * 1e3
-r_orbita = R_terra + altitudine_iniziale
-inclinazione = orb["inclinazione_gradi"] * π / 180
-
-pos_iniziale = [r_orbita, 0.0, 0.0]
-v_orbitale = sqrt(G * M_terra / r_orbita)
-vel_iniziale = [0.0, 
-                v_orbitale * cos(inclinazione), 
-                v_orbitale * sin(inclinazione)]
 
 # Parametri satellite
 massa = sat["massa_kg"]
 area = sat["area_sezione_m2"]
 Cd = sat["coefficiente_drag"]
 attrito = sim["attrito_attivo"]
-
+ 
 # Dizionario parametri forze (passato alle funzioni di integrazione) — ora include Cd
 params_forze = Dict("A" => area, "m" => massa, "attrito_attivo" => attrito, "Cd" => Cd)
-
+ 
 # Tempo simulazione
+r_orbita = R_terra + orb["altitudine_iniziale_km"] * 1e3
+v_orbitale = sqrt(G * M_terra / r_orbita)
+inclinazione = orb["inclinazione_gradi"] * π / 180
+
+# Posizione e velocità iniziali (m, m/s)
+pos_iniziale = [r_orbita, 0.0, 0.0]
+vel_iniziale = [0.0,
+                v_orbitale * cos(inclinazione),
+                v_orbitale * sin(inclinazione)]
+
 periodo = 2 * π * r_orbita / v_orbitale
 tempo_totale = sim["tempo_simulazione_giorni"] * 24 * 3600
 dt = sim["dt"]
-
+ 
 # Mostra info
 if out["mostra_statistiche"]
     println("\n--- Parametri Simulazione ---")
@@ -265,8 +339,9 @@ if out["mostra_statistiche"]
 end
 
 # Esegui simulazione (passare il dizionario dei parametri forze, che contiene Cd)
+# e (opzionalmente) la lista di eventi impulsi
 x, y, z, altitudini, t = simula_orbita(pos_iniziale, vel_iniziale, tempo_totale, dt,
-                                     params_forze)
+                                     params_forze; events=events)
 
 # Salva dati se richiesto
 if out["salva_dati"]

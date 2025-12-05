@@ -1,14 +1,14 @@
 {
     "satellite": {
-        "coefficiente_drag": 0.9,
-        "nome": "ISS",
-        "area_sezione_m2": 1842.6,
-        "massa_kg": 445769.00
+        "coefficiente_drag": 2.2,
+        "nome": "Tiangong-1",
+        "area_sezione_m2": 19.0,
+        "massa_kg": 8506.0
     },
     "orbita": {
         "posizione_iniziale": "automatica",
         "inclinazione_gradi": 51.6,
-        "altitudine_iniziale_km": 427.2
+        "altitudine_iniziale_km": 280.0
     },
     "output": {
         "salva_grafici": true,
@@ -24,6 +24,15 @@
         "backend_grafico": "gr",
         "attrito_attivo": true,
         "dt": 10.0,
-        "tempo_simulazione_giorni": 1
+        "tempo_simulazione_giorni": 10000,
+        "eventi_impulsi": [
+            {
+                "start": 3600.0,
+                "end": 3600.5,
+                "impulses_per_s": 1000.0,
+                "impulse_momentum": 8506,
+                "origin": [6371000.0, 0.0, 0.0]
+            }
+        ]
     }
 }
